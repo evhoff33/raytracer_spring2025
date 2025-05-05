@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Ray Tracer 2.0</title>
+</head>
+
+<body>
+    <canvas id="canv"></canvas>
+    <script>
+
+        //Grab the canvas element, set its size, and get the 2d context
+        let canvas = document.querySelector("#canv")
+        canvas.width = 640
+        canvas.height = 640
+        let ctx = canvas.getContext("2d")
+
+        //Set up some constants for each of use
+        const x = r = 0, y = g = 1, z = b = 2
+
+        /**
+         * Add two vectors together
+         */
+        function add(p1, p2) {
+            return [p1[x] + p2[x], p1[y] + p2[y], p1[z] + p2[z]]
+        }
+
+        /**
+         * Subtract two vectors. Note that this means p2-p1
+         */
+        function minus(p1, p2) {
+            return [p1[x] - p2[x], p1[y] - p2[y], p1[z] - p2[z]]
+        }
+
+        /**
+         * Take the dot product of two vectors
+         */
+        function dot(p1, p2) {
+            return p2[x] * p1[x] + p2[y] * p1[y] + p2[z] * p1[z]
+        }
+
+        /**
+         * Take the cross product of two vectors
+         */
+        function cross(p1, p2) {
+            return [
+                p1[y] * p2[z] - p1[z] * p2[y],
+                p1[z] * p2[x] - p1[x] * p2[z],
+                p1[x] * p2[y] - p1[y] * p2[x],
+            ]
+        }
+
+        function elementWise(p1, p2) {
+            return [p1[x] * p2[x], p1[y] * p2[y], p1[z] * p2[z]]
+        }
+
+        /**
+         * Scale a vector by a scalar
+         */
+        function scale(p, s) {
+            return [p[x] * s, p[y] * s, p[z] * s]
+        }
+
+        /**
+         * Get the length of a vector
+         */
+        function length(p) {
+            return Math.sqrt(p[x] ** 2 + p[y] ** 2 + p[z] ** 2)
+        }
+
+        /**
+         * Normalize a vector
+         */
+        function normalize(p) {
+            return [p[x] / length(p), p[y] / length(p), p[z] / length(p)]
+        }
+
+        function arrayToColor(c) {
+            return `rgb(${c[r] * 255},${c[g] * 255},${c[b] * 255})`
+        }
+
+        function smallRandom(delta) {
+            return (Math.random() * 2 - 1) * delta
+        }
+        function jitter(p, delta) {
+            return normalize(add(p, [smallRandom(delta), smallRandom(delta), smallRandom(delta)]))
+        }
+
+
+        /**
+         * Define the three points that make up our first triangle
+         */
+        const triangle = [
+            [-1, -1, 0],
+            [-1, 1, 0],
+            [-1, 0, -2]
+        ]
+        const triangle2 = [
+            [1, -1, 0],
+            [1, 0, -2],
+            [1, 1, 0],
+        ]
+
+        function checkerShader(result) {
+            let px = Math.abs(Math.floor(result.P[x] * 10)) % 2
+            let py = Math.abs(Math.floor(result.P[y] * 10)) % 2
+            if (px == py)
+                return [0, 0, 1]
+            else
+                return [0, .5, 1]
+        }
+
+
+
+        const triangleSpec = { geometry: triangle, diffuseShader: () => [0, 1, 0], reflectivity: 0 }
+        const triangleSpec2 = { geometry: triangle2, diffuseShader: () => [1, 1, 1], reflectivity: 0 }
+
+        const triangles = [triangleSpec, triangleSpec2]
+        // const triangles = []
+
+        const sphereSpec = { geometry: [-.5, 0, -2, .5], diffuseShader: checkerShader, reflectivity: .5 }
+        const sphereSpec2 = { geometry: [.5, 0, -2, .5], diffuseShader: checkerShader, reflectivity: .5 }
+        const spheres = [sphereSpec, sphereSpec2]
+
+        const ambientLight = [.1, .1, .1]
+
+        const lightSpec = { lightDirection: [-1, 0, 0], color: [1, 1, 1] }
+        const lightSpec2 = { lightDirection: normalize([-1, -1, 0]), color: [.2, .2, .5] }
+        const lightSpec3 = { lightDirection: normalize([-1, 1, 0]), color: [.8, .5, .5] }
+        const lights = [lightSpec, lightSpec2, lightSpec3]
+
+        let time = 0
+
+        function calculateColor(result, remaining) {
+            let N = result.N
+            let P = result.P
+            let R = result.R
+            let diffuseColor = result.spec.diffuseShader(result)
+            let doubleSided = true
+            let arrivingLight = [0, 0, 0]
+
+            //Ambient Light
+            arrivingLight = add(arrivingLight, ambientLight)
+            let reflectiveLight = [0, 0, 0]
+
+            //Diffuse light
+            for (let lightSpec of lights) {
+                //If I'm in shadow, abort (continue)
+                let R = lightSpec.lightDirection
+                let O = add(P, scale(R, .000001))
+                let result = castRay(O, R)
+                //if (result) continue
+                //Otherwise, calculate the contribution of this light source
+                let d = dot(lightSpec.lightDirection, N)
+                if (d < 0) {
+                    if (doubleSided) d *= -1
+                    else d = 0
+                }
+                let lightColor = scale(lightSpec.color, d)
+                arrivingLight = add(arrivingLight, lightColor)
+            }
+
+            let r = result.spec.reflectivity
+            if (r != 0) {
+                let reflectedDirection = normalize(minus(R, scale(N, 2 * dot(N, R))))
+                let O = add(P, scale(reflectedDirection, .00001))
+                reflectiveLight = castColor(O, reflectedDirection, remaining - 1)
+
+
+            }
+
+            let color = elementWise(arrivingLight, diffuseColor)
+            let finalColor = add(scale(color, 1 - r), scale(reflectiveLight, r))
+            //return arrayToColor(color)
+            return finalColor
+
+        }
+
+        function castRay(O, R) {
+
+            let nearestN = undefined
+            let nearestP = undefined
+            let nearestSpec = undefined
+            let nearestDistance = Number.MAX_VALUE
+
+            for (let triangleSpec of triangles) {
+                let triangle = triangleSpec.geometry
+                //Part 2: Ray Plane Intersection
+                let v0 = minus(triangle[1], triangle[0]) //Find the vector for the first leg of the triangle
+                let v1 = minus(triangle[2], triangle[1]) //Find the vector for the second leg of the triangle
+                let v2 = minus(triangle[0], triangle[2]) //Find the vector for the third leg of the triangle
+
+                let N = cross(v0, v1)                    //The normal of the triangle
+                let D = -dot(N, triangle[0])            //The D value for the plane equation (from Ax+By+Cz+D=0)
+                let T = (-D - dot(N, O)) / (dot(N, R))  //Solve for the time it takes to reach the collision point
+                if (nearestDistance < T || T < 0) continue
+                let P = add(O, scale(R, T))             //From the T variable, determine the location in 3D where the collision occurs
+
+                //Part 3: Triangle inside test
+
+                //Find the vectors from each triangle point to the collision point
+                let p0 = minus(P, triangle[0])
+                let p1 = minus(P, triangle[1])
+                let p2 = minus(P, triangle[2])
+
+                //Find the cross products between each pair of vectors
+                let c0 = cross(p0, v0)
+                let c1 = cross(p1, v1)
+                let c2 = cross(p2, v2)
+
+                //Check if each dot product has a positive Z. If it does, then we are inside the triangle
+                if (dot(N, c0) <= 0 && dot(N, c1) <= 0 && dot(N, c2) <= 0) {
+
+                    nearestDistance = T
+                    nearestN = N
+                    nearestP = P
+                    nearestSpec = triangleSpec
+                }
+            }
+
+            for (let sphereSpec of spheres) {
+                let sphere = sphereSpec.geometry
+                let Center = [sphere[x], sphere[y], sphere[z]]
+                let r = sphere[3]
+
+                let D = minus(O, Center)
+                let B = 2 * dot(R, D)
+                let C = dot(D, D) - r ** 2
+                let discriminant = B ** 2 - 4 * C
+                if (discriminant < 0) {
+                    continue
+                }
+
+                let T
+                let T0 = (-B - Math.sqrt(discriminant)) / 2
+                let T1 = (-B + Math.sqrt(discriminant)) / 2
+                if (T0 > 0) {
+                    T = T0
+                }
+                else if (T1 > 0) {
+                    T = T1
+                }
+                if (!T) {
+                    continue
+                }
+
+                let P = add(O, scale(R, T))
+                let N = normalize(minus(P, Center))
+
+                if (nearestDistance < T) continue
+                nearestDistance = T
+
+                nearestDistance = T
+                nearestN = N
+                nearestP = P
+                nearestSpec = sphereSpec
+            }
+
+            if (!nearestSpec) return undefined
+
+            return { N: normalize(nearestN), R, P: nearestP, T: nearestDistance, spec: nearestSpec }
+        }
+
+        function castColor(O, R, remaining) {
+            if (remaining == 0) return [0, 0, 0]
+            let result = castRay(O, R)
+            if (!result) return [0, 0, 0]
+            return calculateColor(result, remaining)
+        }
+
+
+        function render() {
+            //Loop over every pixel in the canvas
+            for (let px = 0; px < 640; px++) {
+                for (let py = 0; py < 640; py++) {
+                    let steps = 32
+                    let sumColor = [0,0,0]
+                    for (let i = 0; i < steps; i++) {
+
+                        let x3 = px / 640 * 2 - 1       //Get the x coordinate in [-1,1]
+                        let y3 = -1 * (py / 640 * 2 - 1)  //Get the y coordinate in [-1,1]. Note that we flip the y from being y-down to y-up
+                        let p = [x3, y3, -1]            //The final 3D point we are going to shoot our ray through
+                        let O = [0, 0, 0]               //The hard-coded origin of the camera
+                        let R = normalize(minus(p, O))  //The direction of the ray through this pixel
+
+                        let color = castColor(O, jitter(R, .001), 5)
+                        sumColor = add(sumColor, color)
+                    }
+                    ctx.fillStyle = arrayToColor(scale(sumColor, 1/steps))
+                    ctx.fillRect(px, py, 1, 1)
+                }
+            }
+        }
+
+        //setTimeout(render, 0)
+        let start = new Date()
+        render()
+        let end = new Date()
+        console.log(end - start)  
+    </script>
+</body>
+
+</html>
